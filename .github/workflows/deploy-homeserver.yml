@@ -15,14 +15,28 @@ on:
 
 jobs:
   deploy:
-    if: ${{ secrets.SSH_HOST != '' && secrets.SSH_PORT != '' && secrets.SSH_USER != '' && secrets.SSH_KEY != '' }}
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Check deploy secrets
+        id: deploy_guard
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+        run: |
+          if [ -z "$SSH_HOST" ] || [ -z "$SSH_PORT" ] || [ -z "$SSH_USER" ] || [ -z "$SSH_KEY" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
       - name: Upload harvester-go source
+        if: steps.deploy_guard.outputs.enabled == 'true'
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -33,6 +47,7 @@ jobs:
           target: "~/harvester-go"
 
       - name: Restart harvester-go on home server
+        if: steps.deploy_guard.outputs.enabled == 'true'
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST }}
