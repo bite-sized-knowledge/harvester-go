@@ -15,6 +15,7 @@ on:
 
 jobs:
   deploy:
+    if: ${{ secrets.SSH_HOST != '' && secrets.SSH_PORT != '' && secrets.SSH_USER != '' && secrets.SSH_KEY != '' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -29,7 +30,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           source: "."
-          target: "${{ secrets.DEPLOY_PATH }}/harvester-go"
+          target: "~/harvester-go"
 
       - name: Restart harvester-go on home server
         uses: appleboy/ssh-action@v1.2.0
@@ -40,7 +41,7 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           script: |
             set -e
-            cd "${{ secrets.DEPLOY_PATH }}/infra"
+            cd ~/infra
             docker-compose build harvester-go
             docker-compose up -d harvester-go
             docker-compose ps harvester-go | grep -q "Up"
