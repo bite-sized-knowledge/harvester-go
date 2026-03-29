@@ -1,0 +1,32 @@
+name: Harvester Go CI
+
+on:
+  push:
+    branches: ["main", "dev"]
+  pull_request:
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Verify Go formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Run unit tests
+        run: go test ./...
+
+      - name: Build harvester binaries
+        run: go build ./...
+
+      - name: Build Docker image
+        run: docker build -t harvester-go:ci .
