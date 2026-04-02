@@ -44,7 +44,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           source: "."
-          target: "~/harvester-go"
+          target: "~/projects/harvester-go"
 
       - name: Restart harvester-go on home server
         if: steps.deploy_guard.outputs.enabled == 'true'
@@ -56,7 +56,7 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           script: |
             set -e
-            cd ~/infra
-            docker-compose build harvester-go
-            docker-compose up -d harvester-go
-            docker-compose ps harvester-go | grep -q "Up"
+            cd ~/projects/infra
+            docker compose build harvester-go
+            docker compose up -d harvester-go
+            docker compose ps harvester-go | grep -q "Up"
