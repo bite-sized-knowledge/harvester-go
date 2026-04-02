@@ -1,21 +1,16 @@
 name: Deploy Harvester to Home Server
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Harvester Go CI"]
     branches: ["main"]
-    paths:
-      - 'cmd/**'
-      - 'internal/**'
-      - 'go.mod'
-      - 'go.sum'
-      - 'Dockerfile'
-      - '.dockerignore'
-      - '.github/workflows/**'
+    types: [completed]
   workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
     steps:
       - name: Check deploy secrets
@@ -42,9 +37,7 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           script: |
             set -e
-            cd ~/projects/harvester-go
-            git pull origin main
             cd ~/projects/infra
-            docker compose build harvester-go
+            docker compose pull harvester-go
             docker compose up -d harvester-go
             docker compose ps harvester-go | grep -q "Up"
