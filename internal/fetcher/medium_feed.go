@@ -21,7 +21,7 @@ func DiscoverMediumArticles(ctx context.Context, client *Client, blog database.B
 	if err != nil {
 		return nil, err
 	}
-	feed, err := gofeed.NewParser().ParseString(string(body))
+	feed, err := gofeed.NewParser().ParseString(string(SanitizeXML(body)))
 	if err != nil {
 		return nil, fmt.Errorf("parse medium feed: %w", err)
 	}

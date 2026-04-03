@@ -73,7 +73,7 @@ func (r *Runner) harvestRSSBlog(ctx context.Context, blog database.Blog) error {
 		return fmt.Errorf("fetch rss: %w", err)
 	}
 
-	feed, err := r.parser.Parse(bytes.NewReader(body))
+	feed, err := r.parser.Parse(bytes.NewReader(fetcher.SanitizeXML(body)))
 	if err != nil {
 		return fmt.Errorf("parse rss: %w", err)
 	}
