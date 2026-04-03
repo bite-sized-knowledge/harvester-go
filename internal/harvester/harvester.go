@@ -60,8 +60,6 @@ func (r *Runner) harvestBlog(ctx context.Context, blog database.Blog) error {
 		return r.harvestMediumBlog(ctx, blog)
 	case "JINA":
 		return r.harvestJinaBlog(ctx, blog)
-	case "DEVOCEAN":
-		return r.harvestDevoceanBlog(ctx, blog)
 	default:
 		return r.harvestRSSBlog(ctx, blog)
 	}
@@ -109,18 +107,6 @@ func (r *Runner) harvestMediumBlog(ctx context.Context, blog database.Blog) erro
 		return fmt.Errorf("discover medium articles: %w", err)
 	}
 	r.logger.Info("medium feed loaded", "blog_id", blog.BlogID, "blog_title", blog.Title, "items", len(articles))
-	for _, article := range articles {
-		_, _ = r.ProcessURL(ctx, blog, article.URL, nil, article.PublishedAt, true)
-	}
-	return nil
-}
-
-func (r *Runner) harvestDevoceanBlog(ctx context.Context, blog database.Blog) error {
-	articles, err := fetcher.DiscoverDevoceanArticles(ctx, r.client, blog)
-	if err != nil {
-		return fmt.Errorf("discover devocean articles: %w", err)
-	}
-	r.logger.Info("devocean blog loaded", "blog_id", blog.BlogID, "blog_title", blog.Title, "items", len(articles))
 	for _, article := range articles {
 		_, _ = r.ProcessURL(ctx, blog, article.URL, nil, article.PublishedAt, true)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -44,6 +45,11 @@ func DiscoverDefaultArticles(ctx context.Context, client *Client, blog database.
 		baseURL = blog.BaseURL
 	}
 
+	// If link_regex is set, use regex-based extraction from raw HTML
+	if blog.LinkRegex != "" {
+		return discoverByRegex(string(body), blog)
+	}
+
 	results := make([]ListedArticle, 0)
 	seen := map[string]struct{}{}
 	doc.Find(blog.ArticleSelector).Each(func(_ int, item *goquery.Selection) {
@@ -69,6 +75,37 @@ func DiscoverDefaultArticles(ctx context.Context, client *Client, blog database.
 			PublishedAt: parsePublishedAt(item, blog.PublishSelector, blog.PublishFormat),
 		})
 	})
+
+	return results, nil
+}
+
+// discoverByRegex extracts article URLs using a regex pattern and URL template.
+// Capture groups in the regex are substituted into the template as {1}, {2}, etc.
+func discoverByRegex(html string, blog database.Blog) ([]ListedArticle, error) {
+	re, err := regexp.Compile(blog.LinkRegex)
+	if err != nil {
+		return nil, fmt.Errorf("compile link_regex: %w", err)
+	}
+
+	matches := re.FindAllStringSubmatch(html, -1)
+	seen := map[string]struct{}{}
+	results := make([]ListedArticle, 0)
+
+	for _, m := range matches {
+		articleURL := blog.LinkTemplate
+		for i := 1; i < len(m); i++ {
+			articleURL = strings.ReplaceAll(articleURL, fmt.Sprintf("{%d}", i), m[i])
+		}
+		articleURL = strings.TrimSpace(articleURL)
+		if articleURL == "" {
+			continue
+		}
+		if _, ok := seen[articleURL]; ok {
+			continue
+		}
+		seen[articleURL] = struct{}{}
+		results = append(results, ListedArticle{URL: articleURL})
+	}
 
 	return results, nil
 }

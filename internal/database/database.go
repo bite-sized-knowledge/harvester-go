@@ -79,7 +79,9 @@ func (d *DB) GetAllBlogs(ctx context.Context) ([]Blog, error) {
 			COALESCE(pagination_type, ''),
 			COALESCE(page_url_pattern, ''),
 			COALESCE(next_page_selector, ''),
-			COALESCE(max_pages, 0)
+			COALESCE(max_pages, 0),
+			COALESCE(link_regex, ''),
+			COALESCE(link_template, '')
 		FROM blog
 		ORDER BY blog_id`)
 	if err != nil {
@@ -112,6 +114,8 @@ func (d *DB) GetAllBlogs(ctx context.Context) ([]Blog, error) {
 			&b.PageURLPattern,
 			&b.NextPageSelector,
 			&b.MaxPages,
+			&b.LinkRegex,
+			&b.LinkTemplate,
 		); err != nil {
 			return nil, fmt.Errorf("scan blog: %w", err)
 		}

@@ -22,6 +22,8 @@ type Blog struct {
 	PageURLPattern       string
 	NextPageSelector     string
 	MaxPages             int
+	LinkRegex            string
+	LinkTemplate         string
 }
 
 type BlogUpsert struct {
