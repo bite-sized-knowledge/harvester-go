@@ -3,7 +3,7 @@ name: Deploy Harvester to Home Server
 on:
   workflow_run:
     workflows: ["Harvester Go CI"]
-    branches: ["main"]
+    branches: ["prod"]
     types: [completed]
   workflow_dispatch:
 
