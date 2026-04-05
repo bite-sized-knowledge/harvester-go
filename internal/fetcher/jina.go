@@ -16,40 +16,73 @@ import (
 
 const jinaReaderBase = "https://r.jina.ai/"
 
-// FetchJinaArticle fetches an article by rendering it through Jina AI Reader,
-// then falls back to standard metadata extraction from the original URL.
-func FetchJinaArticle(ctx context.Context, client *Client, articleURL string, item *gofeed.Item) (Article, error) {
-	// First, try standard fetch for OG metadata (title, thumbnail, description)
-	article, _ := FetchArticle(ctx, client, articleURL, item)
-
-	// Fetch rendered content via Jina
+// enrichViaJina fetches the given URL through Jina Reader and merges the
+// result into `base` (which may hold OG metadata from a prior static fetch).
+// It is only called from FetchWithFallback when the static fetch looks
+// broken — never as a first-line fetcher.
+func enrichViaJina(ctx context.Context, client *Client, articleURL string, base Article) (Article, error) {
 	jinaURL := jinaReaderBase + articleURL
 	body, err := client.Get(ctx, jinaURL)
 	if err != nil {
-		// If Jina fails, return whatever we got from standard fetch
-		if article.Title != "" {
-			return article, nil
+		// If Jina fails, return whatever the static fetch produced.
+		if base.Title != "" {
+			return base, nil
 		}
 		return Article{}, fmt.Errorf("jina fetch failed: %w", err)
 	}
 
 	content := string(body)
 
-	// Extract title from Jina markdown if standard fetch missed it
-	if article.Title == "" {
-		article.Title = extractJinaTitle(content)
+	if base.Title == "" {
+		base.Title = extractJinaTitle(content)
 	}
 
-	// Use Jina content as the article content
-	if len(content) > len(article.Content) {
-		article.Content = content
-		article.ContentLength = len(content)
+	if len(content) > len(base.Content) {
+		base.Content = content
+		base.ContentLength = len(content)
 	}
 
-	article.ID = hasher.HashToSha1Base62(articleURL)
-	article.Link = articleURL
+	base.ID = hasher.HashToSha1Base62(articleURL)
+	base.Link = articleURL
 
-	return article, nil
+	return base, nil
+}
+
+// Minimum "healthy" thresholds for a static fetch. Below these we fall back
+// to Jina. The 2500-byte content threshold is tuned against the Dropbox WAF
+// challenge page (2007 bytes); any legitimate article page exceeds this.
+const (
+	fallbackContentMinBytes = 2500
+)
+
+// looksHealthy returns true when a static-fetched article is usable as-is
+// and does not need a Jina fallback.
+func looksHealthy(a Article) bool {
+	if strings.TrimSpace(a.Title) == "" {
+		return false
+	}
+	if a.ContentLength < fallbackContentMinBytes {
+		return false
+	}
+	return true
+}
+
+// FetchWithFallback is the default article fetcher used for most blogs.
+// It tries a plain static fetch first; if the result looks broken
+// (empty title or suspiciously short body — typical of WAF challenge pages
+// or JS-rendered SPAs), it automatically retries through Jina Reader.
+//
+// The fallback is opportunistic: we keep whatever metadata the static
+// fetch managed to extract (often OG tags survive even when the body is
+// a challenge page) and let Jina supply the real content and title.
+func FetchWithFallback(ctx context.Context, client *Client, articleURL string, item *gofeed.Item) (Article, error) {
+	article, err := FetchArticle(ctx, client, articleURL, item)
+	if err == nil && looksHealthy(article) {
+		return article, nil
+	}
+	// Static failed or looks broken — retry via Jina, reusing the partial
+	// article we already have so Jina only adds content/title.
+	return enrichViaJina(ctx, client, articleURL, article)
 }
 
 // DiscoverJinaArticles discovers article URLs from a JS-rendered list page

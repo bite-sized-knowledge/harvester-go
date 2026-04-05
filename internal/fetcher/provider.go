@@ -16,7 +16,7 @@ func FetchByBlogID(ctx context.Context, client *Client, blogID int, articleURL s
 	if fetcher, ok := providerFetchers[blogID]; ok {
 		return fetcher(ctx, client, articleURL, item)
 	}
-	return FetchArticle(ctx, client, articleURL, item)
+	return FetchWithFallback(ctx, client, articleURL, item)
 }
 
 func RegisterFetcher(blogID int, fetcher ArticleFetcher) {
