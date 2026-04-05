@@ -2,7 +2,6 @@ package fetcher
 
 import (
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -31,7 +30,7 @@ const (
 type Client struct {
 	normalClient   *http.Client
 	insecureClient *http.Client
-	userAgents     []string
+	profiles       []browserProfile
 	index          atomic.Uint64
 	logger         *slog.Logger
 	hostThrottle   sync.Map
@@ -43,46 +42,31 @@ type hostState struct {
 }
 
 func NewClient(proxyRawURL string, logger *slog.Logger) (*Client, error) {
-	normalTransport, err := buildTransport(proxyRawURL, false)
+	dialContext, err := resolveDialContext(proxyRawURL)
 	if err != nil {
 		return nil, err
 	}
-	insecureTransport, err := buildTransport(proxyRawURL, true)
-	if err != nil {
-		return nil, err
-	}
+
+	normalTransport := newUTLSTransport(dialContext, false)
+	insecureTransport := newUTLSTransport(dialContext, true)
 
 	return &Client{
 		normalClient:   &http.Client{Timeout: requestTimeout, Transport: normalTransport},
 		insecureClient: &http.Client{Timeout: requestTimeout, Transport: insecureTransport},
-		userAgents: []string{
-			"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-			"Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
-			"Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0",
-			"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edg/124.0.2478.67 Safari/537.36",
-			"Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-			"Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0",
-		},
-		logger: logger,
+		profiles:       browserProfiles,
+		logger:         logger,
 	}, nil
 }
 
-func buildTransport(proxyRawURL string, insecure bool) (*http.Transport, error) {
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: insecure},
-		DialContext: (&net.Dialer{
+// resolveDialContext returns the base TCP dialer respecting an optional
+// socks5 proxy. The returned function is wrapped inside newUTLSTransport for
+// the TLS layer.
+func resolveDialContext(proxyRawURL string) (func(ctx context.Context, network, addr string) (net.Conn, error), error) {
+	if strings.TrimSpace(proxyRawURL) == "" {
+		return (&net.Dialer{
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-	}
-
-	if strings.TrimSpace(proxyRawURL) == "" {
-		return transport, nil
+		}).DialContext, nil
 	}
 
 	parsed, err := url.Parse(proxyRawURL)
@@ -99,14 +83,12 @@ func buildTransport(proxyRawURL string, insecure bool) (*http.Transport, error) 
 	}
 
 	if contextDialer, ok := dialer.(proxy.ContextDialer); ok {
-		transport.DialContext = contextDialer.DialContext
-		return transport, nil
+		return contextDialer.DialContext, nil
 	}
 
-	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		return dialer.Dial(network, addr)
-	}
-	return transport, nil
+	}, nil
 }
 
 func (c *Client) Get(ctx context.Context, targetURL string) ([]byte, error) {
@@ -157,11 +139,9 @@ func (c *Client) doGet(ctx context.Context, targetURL string, insecure bool) ([]
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Accept", acceptHeaderValue)
-	req.Header.Set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7")
-	req.Header.Set("Cache-Control", "no-cache")
-	req.Header.Set("Pragma", "no-cache")
-	req.Header.Set("User-Agent", c.nextUserAgent())
+
+	profile := c.nextProfile()
+	applyBrowserHeaders(req, profile)
 	if parsed, err := url.Parse(targetURL); err == nil {
 		req.Header.Set("Referer", parsed.Scheme+"://"+parsed.Host+"/")
 	}
@@ -184,9 +164,41 @@ func (c *Client) doGet(ctx context.Context, targetURL string, insecure bool) ([]
 	return body, nil
 }
 
-func (c *Client) nextUserAgent() string {
+func (c *Client) nextProfile() browserProfile {
 	idx := c.index.Add(1)
-	return c.userAgents[idx%uint64(len(c.userAgents))]
+	return c.profiles[idx%uint64(len(c.profiles))]
+}
+
+// applyBrowserHeaders sets the full complement of headers a real Chrome
+// browser sends on a top-level navigation. Consistency across User-Agent and
+// sec-ch-ua-* is critical — Cloudflare cross-checks these and flags any
+// mismatch. The selected profile groups all these fields together so they
+// cannot drift out of sync.
+//
+// Accept-Encoding is intentionally NOT set. Leaving it unset lets Go's
+// http.Transport advertise "gzip" automatically and transparently decompress
+// the response. Advertising "br, zstd" would require us to decompress those
+// formats ourselves, which is not worth the extra dep for a marginal
+// fingerprint improvement.
+func applyBrowserHeaders(req *http.Request, p browserProfile) {
+	req.Header.Set("User-Agent", p.userAgent)
+	req.Header.Set("Accept", acceptHeaderValue)
+	req.Header.Set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7")
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
+
+	// Chromium-specific client hints. Must be consistent with User-Agent.
+	req.Header.Set("sec-ch-ua", p.secChUa)
+	req.Header.Set("sec-ch-ua-mobile", p.secChUaMobile)
+	req.Header.Set("sec-ch-ua-platform", p.secChUaPlatform)
+
+	// Fetch metadata headers — what Chrome sends on a top-level navigation
+	// triggered by a typed URL or bookmark (sec-fetch-site=none).
+	req.Header.Set("sec-fetch-dest", "document")
+	req.Header.Set("sec-fetch-mode", "navigate")
+	req.Header.Set("sec-fetch-site", "none")
+	req.Header.Set("sec-fetch-user", "?1")
+	req.Header.Set("upgrade-insecure-requests", "1")
 }
 
 func isTLSError(err error) bool {
