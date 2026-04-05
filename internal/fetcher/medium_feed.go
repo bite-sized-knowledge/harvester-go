@@ -27,6 +27,9 @@ func DiscoverMediumArticles(ctx context.Context, client *Client, blog database.B
 	}
 	items := make([]ListedArticle, 0, len(feed.Items))
 	for _, item := range feed.Items {
+		if !isMediumArticleURL(item.Link) {
+			continue
+		}
 		published := item.PublishedParsed
 		var at time.Time
 		if published != nil {
@@ -35,6 +38,47 @@ func DiscoverMediumArticles(ctx context.Context, client *Client, blog database.B
 		items = append(items, ListedArticle{URL: item.Link, PublishedAt: at})
 	}
 	return items, nil
+}
+
+// isMediumArticleURL returns false for Medium navigation/listing paths that
+// sometimes leak into a publication feed (tag indexes, search, about, etc.).
+// Legitimate Medium post URLs typically look like:
+//
+//	https://publication.medium.com/post-slug-abcdef123456
+//	https://medium.com/publication/post-slug-abcdef123456
+//	https://netflixtechblog.com/post-slug-abcdef123456
+//
+// Previously observed leaks include https://netflixtechblog.com/tagged/*
+// landing pages being scraped as if they were articles (40 rows in prod).
+func isMediumArticleURL(raw string) bool {
+	if strings.TrimSpace(raw) == "" {
+		return false
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	p := strings.ToLower(parsed.Path)
+	// Empty or root path — not an article.
+	if p == "" || p == "/" {
+		return false
+	}
+	// Medium navigation / listing prefixes.
+	nonArticlePrefixes := []string{
+		"/tagged/",
+		"/search",
+		"/about",
+		"/latest",
+		"/trending",
+		"/m/",
+		"/_/",
+	}
+	for _, pre := range nonArticlePrefixes {
+		if strings.HasPrefix(p, pre) {
+			return false
+		}
+	}
+	return true
 }
 
 func BuildMediumFeedURL(blogLink string) (string, error) {
