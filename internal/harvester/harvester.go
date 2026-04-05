@@ -13,24 +13,21 @@ import (
 	"harvester-go/internal/database"
 	"harvester-go/internal/fetcher"
 	"harvester-go/internal/hasher"
-	"harvester-go/internal/notify"
 )
 
 type Runner struct {
-	db       *database.DB
-	client   *fetcher.Client
-	notifier *notify.DiscordNotifier
-	parser   *gofeed.Parser
-	logger   *slog.Logger
+	db     *database.DB
+	client *fetcher.Client
+	parser *gofeed.Parser
+	logger *slog.Logger
 }
 
-func NewRunner(db *database.DB, client *fetcher.Client, notifier *notify.DiscordNotifier, logger *slog.Logger) *Runner {
+func NewRunner(db *database.DB, client *fetcher.Client, logger *slog.Logger) *Runner {
 	return &Runner{
-		db:       db,
-		client:   client,
-		notifier: notifier,
-		parser:   gofeed.NewParser(),
-		logger:   logger,
+		db:     db,
+		client: client,
+		parser: gofeed.NewParser(),
+		logger: logger,
 	}
 }
 
@@ -83,7 +80,7 @@ func (r *Runner) harvestRSSBlog(ctx context.Context, blog database.Blog) error {
 		if item.PublishedParsed != nil {
 			publishedAt = *item.PublishedParsed
 		}
-		_, _ = r.ProcessURL(ctx, blog, item.Link, item, publishedAt, true)
+		_, _ = r.ProcessURL(ctx, blog, item.Link, item, publishedAt)
 	}
 
 	return nil
@@ -96,7 +93,7 @@ func (r *Runner) harvestDefaultBlog(ctx context.Context, blog database.Blog) err
 	}
 	r.logger.Info("default blog loaded", "blog_id", blog.BlogID, "blog_title", blog.Title, "items", len(articles))
 	for _, article := range articles {
-		_, _ = r.ProcessURL(ctx, blog, article.URL, nil, article.PublishedAt, true)
+		_, _ = r.ProcessURL(ctx, blog, article.URL, nil, article.PublishedAt)
 	}
 	return nil
 }
@@ -108,7 +105,7 @@ func (r *Runner) harvestMediumBlog(ctx context.Context, blog database.Blog) erro
 	}
 	r.logger.Info("medium feed loaded", "blog_id", blog.BlogID, "blog_title", blog.Title, "items", len(articles))
 	for _, article := range articles {
-		_, _ = r.ProcessURL(ctx, blog, article.URL, nil, article.PublishedAt, true)
+		_, _ = r.ProcessURL(ctx, blog, article.URL, nil, article.PublishedAt)
 	}
 	return nil
 }
@@ -120,12 +117,12 @@ func (r *Runner) harvestJinaBlog(ctx context.Context, blog database.Blog) error 
 	}
 	r.logger.Info("jina blog loaded", "blog_id", blog.BlogID, "blog_title", blog.Title, "items", len(articles))
 	for _, article := range articles {
-		_, _ = r.ProcessURL(ctx, blog, article.URL, nil, article.PublishedAt, true)
+		_, _ = r.ProcessURL(ctx, blog, article.URL, nil, article.PublishedAt)
 	}
 	return nil
 }
 
-func (r *Runner) ProcessURL(ctx context.Context, blog database.Blog, rawURL string, item *gofeed.Item, publishedAt time.Time, notifyDiscord bool) (bool, error) {
+func (r *Runner) ProcessURL(ctx context.Context, blog database.Blog, rawURL string, item *gofeed.Item, publishedAt time.Time) (bool, error) {
 	select {
 	case <-ctx.Done():
 		return false, ctx.Err()
@@ -175,12 +172,6 @@ func (r *Runner) ProcessURL(ctx context.Context, blog database.Blog, rawURL stri
 	if err := r.db.InsertArticle(ctx, entity); err != nil {
 		r.logger.Error("insert article failed", "article_id", articleID, "url", link, "error", err)
 		return false, err
-	}
-
-	if notifyDiscord {
-		if err := r.notifier.Notify(ctx, article.Title, article.Link, blog.Title); err != nil {
-			r.logger.Warn("discord notification failed", "article_id", articleID, "error", err)
-		}
 	}
 
 	r.logger.Info("article harvested", "blog_id", blog.BlogID, "blog_title", blog.Title, "article_id", articleID, "title", article.Title)

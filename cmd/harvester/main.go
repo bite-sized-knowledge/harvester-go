@@ -12,7 +12,6 @@ import (
 	"harvester-go/internal/database"
 	"harvester-go/internal/fetcher"
 	worker "harvester-go/internal/harvester"
-	"harvester-go/internal/notify"
 )
 
 func main() {
@@ -43,7 +42,7 @@ func main() {
 		return
 	}
 
-	runner := worker.NewRunner(db, client, notify.NewDiscordNotifier(cfg.DiscordWebhookURL), logger)
+	runner := worker.NewRunner(db, client, logger)
 
 	runCycle := func() {
 		cycleCtx, cancel := context.WithTimeout(ctx, 55*time.Minute)

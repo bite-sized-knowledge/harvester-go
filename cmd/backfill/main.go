@@ -22,7 +22,6 @@ import (
 	"harvester-go/internal/database"
 	"harvester-go/internal/fetcher"
 	worker "harvester-go/internal/harvester"
-	"harvester-go/internal/notify"
 	"harvester-go/internal/sitemap"
 )
 
@@ -103,7 +102,7 @@ func main() {
 		return
 	}
 
-	runner := worker.NewRunner(db, client, notify.NewDiscordNotifier(""), logger)
+	runner := worker.NewRunner(db, client, logger)
 	parsedKind := strings.ToLower(strings.TrimSpace(sourceKind))
 	if parsedKind != "sitemap" && parsedKind != "feed" && parsedKind != "html" && parsedKind != "kakao-range" {
 		logger.Error("unsupported source kind", "source_kind", sourceKind)
@@ -137,7 +136,7 @@ func main() {
 			default:
 			}
 
-			wasInserted, err := runner.ProcessURL(ctx, blog, item.Loc, nil, item.LastMod, false)
+			wasInserted, err := runner.ProcessURL(ctx, blog, item.Loc, nil, item.LastMod)
 			if err != nil {
 				failures++
 				continue
@@ -181,7 +180,7 @@ func main() {
 			default:
 			}
 
-			wasInserted, err := runner.ProcessURL(ctx, blog, item.Item.Link, item.Item, item.PublishedAt, false)
+			wasInserted, err := runner.ProcessURL(ctx, blog, item.Item.Link, item.Item, item.PublishedAt)
 			if err != nil {
 				failures++
 				continue
@@ -220,7 +219,7 @@ func main() {
 			default:
 			}
 
-			wasInserted, err := runner.ProcessURL(ctx, blog, item.Loc, nil, time.Time{}, false)
+			wasInserted, err := runner.ProcessURL(ctx, blog, item.Loc, nil, time.Time{})
 			if err != nil {
 				failures++
 				continue
@@ -268,7 +267,7 @@ func main() {
 			}
 			filteredCount++
 
-			wasInserted, err := runner.ProcessURL(ctx, blog, targetURL, nil, publishedAt, false)
+			wasInserted, err := runner.ProcessURL(ctx, blog, targetURL, nil, publishedAt)
 			if err != nil {
 				failures++
 				continue

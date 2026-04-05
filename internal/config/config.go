@@ -10,15 +10,14 @@ import (
 )
 
 type Config struct {
-	DBHost            string
-	DBPort            int
-	DBUser            string
-	DBPassword        string
-	DBName            string
-	ProxyURL          string
-	DiscordWebhookURL string
-	HarvestInterval   time.Duration
-	LogLevel          slog.Level
+	DBHost          string
+	DBPort          int
+	DBUser          string
+	DBPassword      string
+	DBName          string
+	ProxyURL        string
+	HarvestInterval time.Duration
+	LogLevel        slog.Level
 }
 
 func Load() (Config, error) {
@@ -29,7 +28,6 @@ func Load() (Config, error) {
 	cfg.DBPassword = os.Getenv("DB_PASSWORD")
 	cfg.DBName = strings.TrimSpace(os.Getenv("DB_NAME"))
 	cfg.ProxyURL = strings.TrimSpace(os.Getenv("PROXY_URL"))
-	cfg.DiscordWebhookURL = strings.TrimSpace(os.Getenv("DISCORD_WEBHOOK_URL"))
 
 	dbPortRaw := strings.TrimSpace(os.Getenv("DB_PORT"))
 	if dbPortRaw == "" {
