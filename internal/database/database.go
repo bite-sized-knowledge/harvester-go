@@ -253,6 +253,69 @@ func (d *DB) InsertArticle(ctx context.Context, article ArticleEntity) error {
 	return nil
 }
 
+// RejectedRow is the subset of article_rejected needed to retry a fetch.
+type RejectedRow struct {
+	ArticleID    string
+	BlogID       int
+	URL          string
+	PublishedAt  time.Time
+	RejectReason string
+}
+
+// ListRejectedForRefetch returns rows from article_rejected matching any of
+// the given reason strings. Pass blogID=0 to include all blogs.
+func (d *DB) ListRejectedForRefetch(ctx context.Context, reasons []string, blogID, limit int) ([]RejectedRow, error) {
+	if len(reasons) == 0 {
+		return nil, fmt.Errorf("reasons list is empty")
+	}
+	placeholders := make([]string, len(reasons))
+	args := make([]any, 0, len(reasons)+2)
+	for i, r := range reasons {
+		placeholders[i] = "?"
+		args = append(args, r)
+	}
+	query := fmt.Sprintf(
+		`SELECT article_id, blog_id, COALESCE(url,''), COALESCE(published_at, CURRENT_TIMESTAMP), reject_reason
+		 FROM article_rejected
+		 WHERE reject_reason IN (%s)`,
+		strings.Join(placeholders, ","),
+	)
+	if blogID > 0 {
+		query += " AND blog_id = ?"
+		args = append(args, blogID)
+	}
+	query += " ORDER BY rejected_at DESC LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := d.pool.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query article_rejected: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]RejectedRow, 0, limit)
+	for rows.Next() {
+		var r RejectedRow
+		if err := rows.Scan(&r.ArticleID, &r.BlogID, &r.URL, &r.PublishedAt, &r.RejectReason); err != nil {
+			return nil, fmt.Errorf("scan article_rejected row: %w", err)
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate article_rejected rows: %w", err)
+	}
+	return out, nil
+}
+
+// DeleteFromRejected removes a single row from article_rejected by article_id.
+func (d *DB) DeleteFromRejected(ctx context.Context, articleID string) error {
+	_, err := d.pool.ExecContext(ctx, "DELETE FROM article_rejected WHERE article_id = ?", articleID)
+	if err != nil {
+		return fmt.Errorf("delete article_rejected article_id=%s: %w", articleID, err)
+	}
+	return nil
+}
+
 func clampString(value string, max int) string {
 	if utf8.RuneCountInString(value) <= max {
 		return value
