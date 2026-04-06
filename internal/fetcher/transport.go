@@ -10,6 +10,55 @@ import (
 	utls "github.com/refraction-networking/utls"
 )
 
+// cachedChromeSpec holds the Chrome 131 ClientHelloSpec with ALPN forced to
+// http/1.1.  It is built once at package init and cloned for every connection
+// via cloneChromeSpec, because ApplyPreset mutates extension objects through
+// shared pointers.
+var cachedChromeSpec utls.ClientHelloSpec
+
+func init() {
+	spec, err := utls.UTLSIdToSpec(utls.HelloChrome_131)
+	if err != nil {
+		// The spec is compiled-in; a failure here is a programmer error.
+		panic(fmt.Sprintf("utls: load chrome 131 spec: %v", err))
+	}
+	for _, ext := range spec.Extensions {
+		if alpn, ok := ext.(*utls.ALPNExtension); ok {
+			alpn.AlpnProtocols = []string{"http/1.1"}
+		}
+	}
+	cachedChromeSpec = spec
+}
+
+// cloneChromeSpec returns a shallow copy of cachedChromeSpec with a fresh
+// Extensions slice.  Each element is the same pointer as the cached version
+// except for *ALPNExtension, which is deep-copied because ApplyPreset
+// mutates extension structs through the shared interface pointers (e.g. it
+// overwrites SNIExtension.ServerName).  A fresh ALPNExtension avoids any
+// cross-connection mutation of the ALPN value we patched in init().
+//
+// SNIExtension is intentionally NOT cloned: ApplyPreset unconditionally
+// overwrites ServerName with uconn.config.ServerName, so sharing is safe as
+// long as connections are not concurrent — which matches the sequential-
+// per-host model of the harvester.  If concurrency is ever added, clone SNI
+// as well.
+func cloneChromeSpec() utls.ClientHelloSpec {
+	clone := cachedChromeSpec
+	clone.Extensions = make([]utls.TLSExtension, len(cachedChromeSpec.Extensions))
+	copy(clone.Extensions, cachedChromeSpec.Extensions)
+	for i, ext := range clone.Extensions {
+		if alpn, ok := ext.(*utls.ALPNExtension); ok {
+			alpnCopy := *alpn
+			alpnCopy.AlpnProtocols = make([]string, len(alpn.AlpnProtocols))
+			copy(alpnCopy.AlpnProtocols, alpn.AlpnProtocols)
+			clone.Extensions[i] = &alpnCopy
+		}
+	}
+	clone.CipherSuites = make([]uint16, len(cachedChromeSpec.CipherSuites))
+	copy(clone.CipherSuites, cachedChromeSpec.CipherSuites)
+	return clone
+}
+
 // newUTLSTransport returns an http.Transport that performs TLS handshakes
 // via uTLS using a Chrome ClientHello. This produces a JA3/JA4 fingerprint
 // identical to a real Chrome browser, bypassing Cloudflare and similar WAFs
@@ -62,20 +111,10 @@ func newUTLSTransport(dialContext func(ctx context.Context, network, addr string
 			}
 			uConn := utls.UClient(rawConn, uConfig, utls.HelloCustom)
 
-			// Build a Chrome 131 spec and force its ALPN to http/1.1 only.
-			// The version is intentionally kept in sync with browser_profile.go's
-			// User-Agent strings (Chrome/131) so JA3 fingerprint and UA don't
-			// advertise conflicting browser versions — some WAFs cross-check.
-			spec, err := utls.UTLSIdToSpec(utls.HelloChrome_131)
-			if err != nil {
-				_ = rawConn.Close()
-				return nil, fmt.Errorf("load chrome spec: %w", err)
-			}
-			for _, ext := range spec.Extensions {
-				if alpn, ok := ext.(*utls.ALPNExtension); ok {
-					alpn.AlpnProtocols = []string{"http/1.1"}
-				}
-			}
+			// Clone the cached Chrome 131 spec (built once in init with ALPN
+			// forced to http/1.1).  We clone because ApplyPreset mutates the
+			// extension objects through shared pointers.
+			spec := cloneChromeSpec()
 			if err := uConn.ApplyPreset(&spec); err != nil {
 				_ = rawConn.Close()
 				return nil, fmt.Errorf("apply chrome spec: %w", err)

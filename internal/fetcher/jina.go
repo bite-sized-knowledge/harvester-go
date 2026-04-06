@@ -142,37 +142,25 @@ func extractLinksFromMarkdown(markdown, baseURL string) []string {
 	seen := map[string]struct{}{}
 	var links []string
 
-	// Extract URLs from markdown link syntax: ](url)
-	for _, m := range urlInParensRe.FindAllStringSubmatch(markdown, -1) {
-		if len(m) < 2 {
-			continue
-		}
-		href := strings.TrimSpace(m[1])
-		if _, ok := seen[href]; ok {
-			continue
-		}
-		seen[href] = struct{}{}
-		resolved := resolveURL(baseURL, href)
-		if resolved != "" {
-			links = append(links, resolved)
+	collectMatches := func(matches [][]string) {
+		for _, m := range matches {
+			if len(m) < 2 {
+				continue
+			}
+			href := strings.TrimSpace(m[1])
+			if _, ok := seen[href]; ok {
+				continue
+			}
+			seen[href] = struct{}{}
+			resolved := resolveURL(baseURL, href)
+			if resolved != "" {
+				links = append(links, resolved)
+			}
 		}
 	}
 
-	// Also extract standalone URLs
-	for _, m := range standaloneURLRe.FindAllStringSubmatch(markdown, -1) {
-		if len(m) < 2 {
-			continue
-		}
-		href := strings.TrimSpace(m[1])
-		if _, ok := seen[href]; ok {
-			continue
-		}
-		seen[href] = struct{}{}
-		resolved := resolveURL(baseURL, href)
-		if resolved != "" {
-			links = append(links, resolved)
-		}
-	}
+	collectMatches(urlInParensRe.FindAllStringSubmatch(markdown, -1))
+	collectMatches(standaloneURLRe.FindAllStringSubmatch(markdown, -1))
 
 	return links
 }

@@ -204,21 +204,14 @@ func nullIfZero(v int) any {
 }
 
 func (d *DB) IsExistArticle(ctx context.Context, articleID string) (bool, error) {
-	var countArticle int
-	if err := d.pool.QueryRowContext(ctx, "SELECT COUNT(*) FROM article WHERE article_id = ?", articleID).Scan(&countArticle); err != nil {
+	var exists bool
+	if err := d.pool.QueryRowContext(ctx,
+		"SELECT EXISTS(SELECT 1 FROM article WHERE article_id = ?) OR EXISTS(SELECT 1 FROM article_queue WHERE article_id = ?)",
+		articleID, articleID,
+	).Scan(&exists); err != nil {
 		return false, fmt.Errorf("query article existence: %w", err)
 	}
-
-	if countArticle > 0 {
-		return true, nil
-	}
-
-	var countQueue int
-	if err := d.pool.QueryRowContext(ctx, "SELECT COUNT(*) FROM article_queue WHERE article_id = ?", articleID).Scan(&countQueue); err != nil {
-		return false, fmt.Errorf("query article_queue existence: %w", err)
-	}
-
-	return countQueue > 0, nil
+	return exists, nil
 }
 
 func (d *DB) InsertArticle(ctx context.Context, article ArticleEntity) error {
