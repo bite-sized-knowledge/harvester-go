@@ -2,6 +2,7 @@ package fetcher
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -84,15 +85,6 @@ func newUTLSTransport(dialContext func(ctx context.Context, network, addr string
 	}
 
 	return &http.Transport{
-		// Custom TLS dial that wraps the plain TCP connection with a uTLS
-		// client speaking a Chrome ClientHello — with one critical
-		// modification: the ALPN extension advertises only "http/1.1". This
-		// keeps us on HTTP/1.1 (which Go's http.Transport can parse over a
-		// generic net.Conn) while retaining the JA3/JA4 fingerprint of real
-		// Chrome. Supporting h2 via uTLS requires a custom RoundTripper that
-		// hands off to golang.org/x/net/http2 after ALPN negotiation —
-		// significant complexity for marginal gain, given our harvester is
-		// strictly sequential per host.
 		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			rawConn, err := dialContext(ctx, network, addr)
 			if err != nil {
@@ -111,9 +103,6 @@ func newUTLSTransport(dialContext func(ctx context.Context, network, addr string
 			}
 			uConn := utls.UClient(rawConn, uConfig, utls.HelloCustom)
 
-			// Clone the cached Chrome 131 spec (built once in init with ALPN
-			// forced to http/1.1).  We clone because ApplyPreset mutates the
-			// extension objects through shared pointers.
 			spec := cloneChromeSpec()
 			if err := uConn.ApplyPreset(&spec); err != nil {
 				_ = rawConn.Close()
@@ -127,12 +116,34 @@ func newUTLSTransport(dialContext func(ctx context.Context, network, addr string
 			return uConn, nil
 		},
 
-		// Plain TCP dialer for non-TLS hosts (rare in our case — almost all
-		// blogs are HTTPS). Required because DialTLSContext only covers
-		// https:// URLs; http:// still goes through DialContext.
 		DialContext: dialContext,
 
 		ForceAttemptHTTP2:     false,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+	}
+}
+
+// newStdTransport returns an http.Transport using Go's standard crypto/tls.
+// It supports h2 natively and serves as a fallback when uTLS handshakes are
+// rejected by servers that detect the ALPN http/1.1-only anomaly in the
+// Chrome fingerprint.
+func newStdTransport(dialContext func(ctx context.Context, network, addr string) (net.Conn, error), insecure bool) *http.Transport {
+	if dialContext == nil {
+		dialContext = (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext
+	}
+
+	return &http.Transport{
+		DialContext: dialContext,
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: insecure,
+		},
+		ForceAttemptHTTP2:     true,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		MaxIdleConns:          100,

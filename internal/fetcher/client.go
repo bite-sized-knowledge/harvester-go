@@ -30,6 +30,7 @@ const (
 type Client struct {
 	normalClient   *http.Client
 	insecureClient *http.Client
+	stdClient      *http.Client
 	profiles       []browserProfile
 	index          atomic.Uint64
 	logger         *slog.Logger
@@ -49,10 +50,12 @@ func NewClient(proxyRawURL string, logger *slog.Logger) (*Client, error) {
 
 	normalTransport := newUTLSTransport(dialContext, false)
 	insecureTransport := newUTLSTransport(dialContext, true)
+	stdTransport := newStdTransport(dialContext, false)
 
 	return &Client{
 		normalClient:   &http.Client{Timeout: requestTimeout, Transport: normalTransport},
 		insecureClient: &http.Client{Timeout: requestTimeout, Transport: insecureTransport},
+		stdClient:      &http.Client{Timeout: requestTimeout, Transport: stdTransport},
 		profiles:       browserProfiles,
 		logger:         logger,
 	}, nil
@@ -98,7 +101,7 @@ func (c *Client) Get(ctx context.Context, targetURL string) ([]byte, error) {
 
 	var lastErr error
 	for attempt := 1; attempt <= maxRetryAttempts; attempt++ {
-		body, err := c.doGet(ctx, targetURL, false)
+		body, err := c.doGet(ctx, targetURL, c.normalClient)
 		if err == nil {
 			return body, nil
 		}
@@ -106,11 +109,23 @@ func (c *Client) Get(ctx context.Context, targetURL string) ([]byte, error) {
 
 		if isTLSError(err) {
 			c.logger.Warn("TLS error, retrying insecure", "url", targetURL, "attempt", attempt, "error", err)
-			body, insecureErr := c.doGet(ctx, targetURL, true)
+			body, insecureErr := c.doGet(ctx, targetURL, c.insecureClient)
 			if insecureErr == nil {
 				return body, nil
 			}
 			lastErr = insecureErr
+		}
+
+		// uTLS handshake rejected — the server detects our Chrome
+		// fingerprint with http/1.1-only ALPN as anomalous. Fall back to
+		// standard Go TLS which negotiates h2 natively.
+		if isHandshakeError(lastErr) {
+			c.logger.Info("uTLS handshake rejected, falling back to standard TLS", "url", targetURL)
+			body, stdErr := c.doGet(ctx, targetURL, c.stdClient)
+			if stdErr == nil {
+				return body, nil
+			}
+			return nil, stdErr
 		}
 
 		if !shouldRetry(lastErr) || attempt == maxRetryAttempts {
@@ -129,12 +144,7 @@ func (c *Client) Get(ctx context.Context, targetURL string) ([]byte, error) {
 	return nil, lastErr
 }
 
-func (c *Client) doGet(ctx context.Context, targetURL string, insecure bool) ([]byte, error) {
-	client := c.normalClient
-	if insecure {
-		client = c.insecureClient
-	}
-
+func (c *Client) doGet(ctx context.Context, targetURL string, client *http.Client) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -199,6 +209,16 @@ func applyBrowserHeaders(req *http.Request, p browserProfile) {
 	req.Header.Set("sec-fetch-site", "none")
 	req.Header.Set("sec-fetch-user", "?1")
 	req.Header.Set("upgrade-insecure-requests", "1")
+}
+
+func isHandshakeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errText := err.Error()
+	return strings.Contains(errText, "uTLS handshake") ||
+		strings.Contains(errText, "tls: handshake failure") ||
+		strings.Contains(errText, "tls: internal error")
 }
 
 func isTLSError(err error) bool {
