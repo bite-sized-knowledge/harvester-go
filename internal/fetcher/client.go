@@ -66,10 +66,7 @@ func NewClient(proxyRawURL string, logger *slog.Logger) (*Client, error) {
 // the TLS layer.
 func resolveDialContext(proxyRawURL string) (func(ctx context.Context, network, addr string) (net.Conn, error), error) {
 	if strings.TrimSpace(proxyRawURL) == "" {
-		return (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext, nil
+		return defaultDialContext(), nil
 	}
 
 	parsed, err := url.Parse(proxyRawURL)
