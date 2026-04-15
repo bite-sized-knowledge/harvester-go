@@ -4,9 +4,10 @@ import "testing"
 
 func TestLooksHealthy(t *testing.T) {
 	cases := []struct {
-		name string
-		a    Article
-		want bool
+		name      string
+		a         Article
+		blogTitle string
+		want      bool
 	}{
 		{
 			name: "normal article",
@@ -43,11 +44,17 @@ func TestLooksHealthy(t *testing.T) {
 			a:    Article{Title: "A post", ContentLength: fallbackContentMinBytes - 1},
 			want: false,
 		},
+		{
+			name:      "title matches blog title",
+			a:         Article{Title: "My Blog", ContentLength: 15000},
+			blogTitle: "My Blog",
+			want:      false,
+		},
 	}
 
 	for _, c := range cases {
-		if got := looksHealthy(c.a); got != c.want {
-			t.Errorf("%s: looksHealthy(%+v) = %v, want %v", c.name, c.a, got, c.want)
+		if got := looksHealthy(c.a, c.blogTitle); got != c.want {
+			t.Errorf("%s: looksHealthy(%+v, %q) = %v, want %v", c.name, c.a, c.blogTitle, got, c.want)
 		}
 	}
 }
