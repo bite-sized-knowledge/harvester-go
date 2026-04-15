@@ -24,6 +24,7 @@ type Blog struct {
 	MaxPages             int
 	LinkRegex            string
 	LinkTemplate         string
+	IsActive             bool
 }
 
 type BlogUpsert struct {

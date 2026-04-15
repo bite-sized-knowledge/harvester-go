@@ -116,7 +116,7 @@ func main() {
 			continue
 		}
 
-		article, err := fetcher.FetchByBlogID(ctx, client, blog.BlogID, row.URL, nil)
+		article, err := fetcher.FetchByBlogID(ctx, client, blog.BlogID, row.URL, nil, blog.Title)
 		if err != nil {
 			fetchErrors++
 			logger.Warn("fetch failed", "article_id", row.ArticleID, "url", row.URL, "error", err)

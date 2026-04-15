@@ -81,8 +81,10 @@ func (d *DB) GetAllBlogs(ctx context.Context) ([]Blog, error) {
 			COALESCE(next_page_selector, ''),
 			COALESCE(max_pages, 0),
 			COALESCE(link_regex, ''),
-			COALESCE(link_template, '')
+			COALESCE(link_template, ''),
+			is_active
 		FROM blog
+		WHERE is_active = TRUE
 		ORDER BY blog_id`)
 	if err != nil {
 		return nil, fmt.Errorf("query blogs: %w", err)
@@ -116,6 +118,7 @@ func (d *DB) GetAllBlogs(ctx context.Context) ([]Blog, error) {
 			&b.MaxPages,
 			&b.LinkRegex,
 			&b.LinkTemplate,
+			&b.IsActive,
 		); err != nil {
 			return nil, fmt.Errorf("scan blog: %w", err)
 		}

@@ -12,11 +12,11 @@ var providerFetchers = map[int]ArticleFetcher{
 	D2BlogID: FetchD2Article,
 }
 
-func FetchByBlogID(ctx context.Context, client *Client, blogID int, articleURL string, item *gofeed.Item) (Article, error) {
+func FetchByBlogID(ctx context.Context, client *Client, blogID int, articleURL string, item *gofeed.Item, blogTitle string) (Article, error) {
 	if fetcher, ok := providerFetchers[blogID]; ok {
 		return fetcher(ctx, client, articleURL, item)
 	}
-	return FetchWithFallback(ctx, client, articleURL, item)
+	return FetchWithFallback(ctx, client, articleURL, item, blogTitle)
 }
 
 func RegisterFetcher(blogID int, fetcher ArticleFetcher) {

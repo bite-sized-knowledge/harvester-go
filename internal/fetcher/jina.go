@@ -33,8 +33,8 @@ func enrichViaJina(ctx context.Context, client *Client, articleURL string, base 
 
 	content := string(body)
 
-	if base.Title == "" {
-		base.Title = extractJinaTitle(content)
+	if jinaTitle := extractJinaTitle(content); jinaTitle != "" && len(jinaTitle) > len(base.Title) {
+		base.Title = jinaTitle
 	}
 
 	if len(content) > len(base.Content) {
@@ -57,8 +57,12 @@ const (
 
 // looksHealthy returns true when a static-fetched article is usable as-is
 // and does not need a Jina fallback.
-func looksHealthy(a Article) bool {
-	if strings.TrimSpace(a.Title) == "" {
+func looksHealthy(a Article, blogTitle string) bool {
+	title := strings.TrimSpace(a.Title)
+	if title == "" {
+		return false
+	}
+	if blogTitle != "" && strings.EqualFold(title, strings.TrimSpace(blogTitle)) {
 		return false
 	}
 	if a.ContentLength < fallbackContentMinBytes {
@@ -75,9 +79,9 @@ func looksHealthy(a Article) bool {
 // The fallback is opportunistic: we keep whatever metadata the static
 // fetch managed to extract (often OG tags survive even when the body is
 // a challenge page) and let Jina supply the real content and title.
-func FetchWithFallback(ctx context.Context, client *Client, articleURL string, item *gofeed.Item) (Article, error) {
+func FetchWithFallback(ctx context.Context, client *Client, articleURL string, item *gofeed.Item, blogTitle string) (Article, error) {
 	article, err := FetchArticle(ctx, client, articleURL, item)
-	if err == nil && looksHealthy(article) {
+	if err == nil && looksHealthy(article, blogTitle) {
 		return article, nil
 	}
 	// Static failed or looks broken — retry via Jina, reusing the partial
@@ -118,7 +122,7 @@ func DiscoverJinaArticles(ctx context.Context, client *Client, blog database.Blo
 		if _, ok := seen[link]; ok {
 			continue
 		}
-		if !isArticleLink(link, pageURL) {
+		if !IsArticleLink(link, pageURL) {
 			continue
 		}
 		seen[link] = struct{}{}
@@ -165,7 +169,17 @@ func extractLinksFromMarkdown(markdown, baseURL string) []string {
 	return links
 }
 
-func isArticleLink(link, pageURL string) bool {
+var assetExts = []string{".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".css", ".js", ".pdf", ".zip"}
+
+var excludePatterns = []string{
+	"/tags/", "/tag/", "/tagged/", "/category/", "/categories/",
+	"/page/", "/about", "/contact", "/search",
+	"/login", "/signup", "/register",
+	"/feed", "/rss", "/atom",
+	"/legal/", "/help/", "/accessibility", "/psettings/",
+}
+
+func IsArticleLink(link, pageURL string) bool {
 	// Exclude fragment-only links
 	if strings.Contains(link, "#") && strings.Split(link, "#")[0] == strings.Split(pageURL, "#")[0] {
 		return false
@@ -178,22 +192,13 @@ func isArticleLink(link, pageURL string) bool {
 		return false
 	}
 
-	// Exclude static asset extensions
 	lower := strings.ToLower(link)
-	assetExts := []string{".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".css", ".js", ".pdf", ".zip"}
 	for _, ext := range assetExts {
 		if strings.HasSuffix(lower, ext) || strings.Contains(lower, ext+"?") {
 			return false
 		}
 	}
 
-	// Exclude common non-article patterns
-	excludePatterns := []string{
-		"/tags/", "/tag/", "/category/", "/categories/",
-		"/page/", "/about", "/contact", "/search",
-		"/login", "/signup", "/register",
-		"/feed", "/rss", "/atom",
-	}
 	for _, pattern := range excludePatterns {
 		if strings.Contains(lower, pattern) {
 			return false

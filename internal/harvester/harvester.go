@@ -135,6 +135,11 @@ func (r *Runner) ProcessURL(ctx context.Context, blog database.Blog, rawURL stri
 		return false, nil
 	}
 
+	if !fetcher.IsArticleLink(link, blog.URL) {
+		r.logger.Debug("non-article URL filtered", "blog_id", blog.BlogID, "url", link)
+		return false, nil
+	}
+
 	articleID := hasher.HashToSha1Base62(link)
 	exists, err := r.db.IsExistArticle(ctx, articleID)
 	if err != nil {
@@ -146,7 +151,7 @@ func (r *Runner) ProcessURL(ctx context.Context, blog database.Blog, rawURL stri
 		return false, nil
 	}
 
-	article, err := r.fetchArticle(ctx, blog.BlogID, link, item)
+	article, err := r.fetchArticle(ctx, blog, link, item)
 	if err != nil {
 		r.logger.Error("article fetch failed", "blog_id", blog.BlogID, "blog_title", blog.Title, "url", link, "error", err)
 		return false, err
@@ -178,8 +183,8 @@ func (r *Runner) ProcessURL(ctx context.Context, blog database.Blog, rawURL stri
 	return true, nil
 }
 
-func (r *Runner) fetchArticle(ctx context.Context, blogID int, link string, item *gofeed.Item) (fetcher.Article, error) {
-	return fetcher.FetchByBlogID(ctx, r.client, blogID, link, item)
+func (r *Runner) fetchArticle(ctx context.Context, blog database.Blog, link string, item *gofeed.Item) (fetcher.Article, error) {
+	return fetcher.FetchByBlogID(ctx, r.client, blog.BlogID, link, item, blog.Title)
 }
 
 func normalizeLink(value string) string {
