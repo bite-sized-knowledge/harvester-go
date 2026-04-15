@@ -36,33 +36,7 @@ type ArticleEntity struct {
 }
 
 func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*DB, error) {
-	tlsMode := "skip-verify"
-	if caPath := os.Getenv("DB_TLS_CA"); caPath != "" {
-		rootCertPool := x509.NewCertPool()
-		pem, err := os.ReadFile(caPath)
-		if err != nil {
-			return nil, fmt.Errorf("read DB TLS CA: %w", err)
-		}
-		if ok := rootCertPool.AppendCertsFromPEM(pem); !ok {
-			return nil, fmt.Errorf("failed to parse DB TLS CA certificate")
-		}
-		if err := mysql.RegisterTLSConfig("mysql-tls", &tls.Config{
-			RootCAs:            rootCertPool,
-			InsecureSkipVerify: true, // skip hostname check (self-signed CN doesn't match Docker service name)
-			VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
-				cert, err := x509.ParseCertificate(rawCerts[0])
-				if err != nil {
-					return fmt.Errorf("parse peer cert: %w", err)
-				}
-				_, err = cert.Verify(x509.VerifyOptions{Roots: rootCertPool})
-				return err
-			},
-		}); err != nil {
-			return nil, fmt.Errorf("register TLS config: %w", err)
-		}
-		tlsMode = "mysql-tls"
-		logger.Info("MySQL TLS: using CA certificate verification")
-	}
+	tlsMode := configureTLS(logger)
 
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&charset=utf8mb4&collation=utf8mb4_unicode_ci&tls=%s", cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort, cfg.DBName, tlsMode)
 
@@ -81,6 +55,44 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*DB, erro
 	}
 
 	return &DB{pool: pool, logger: logger}, nil
+}
+
+func configureTLS(logger *slog.Logger) string {
+	caPath := os.Getenv("DB_TLS_CA")
+	if caPath == "" {
+		return "skip-verify"
+	}
+
+	pem, err := os.ReadFile(caPath)
+	if err != nil {
+		logger.Warn("DB TLS CA file not found, falling back to skip-verify", "path", caPath)
+		return "skip-verify"
+	}
+
+	rootCertPool := x509.NewCertPool()
+	if ok := rootCertPool.AppendCertsFromPEM(pem); !ok {
+		logger.Warn("failed to parse DB TLS CA certificate, falling back to skip-verify")
+		return "skip-verify"
+	}
+
+	if err := mysql.RegisterTLSConfig("mysql-tls", &tls.Config{
+		RootCAs:            rootCertPool,
+		InsecureSkipVerify: true, // skip hostname check (self-signed CN doesn't match Docker service name)
+		VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+			cert, err := x509.ParseCertificate(rawCerts[0])
+			if err != nil {
+				return fmt.Errorf("parse peer cert: %w", err)
+			}
+			_, err = cert.Verify(x509.VerifyOptions{Roots: rootCertPool})
+			return err
+		},
+	}); err != nil {
+		logger.Warn("failed to register TLS config, falling back to skip-verify", "error", err)
+		return "skip-verify"
+	}
+
+	logger.Info("MySQL TLS: using CA certificate verification")
+	return "mysql-tls"
 }
 
 func (d *DB) Close() error {
