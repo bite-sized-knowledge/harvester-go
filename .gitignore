@@ -7,5 +7,5 @@ vendor/
 .DS_Store
 
 # Build binaries
-harvester
-backfill
+/harvester
+/backfill

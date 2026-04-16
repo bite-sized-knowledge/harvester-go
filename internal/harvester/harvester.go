@@ -189,5 +189,10 @@ func (r *Runner) fetchArticle(ctx context.Context, blog database.Blog, link stri
 
 func normalizeLink(value string) string {
 	trimmed := strings.TrimSpace(value)
-	return strings.TrimSuffix(trimmed, "/")
+	trimmed = strings.TrimSuffix(trimmed, "/")
+	// Strip query parameters to prevent duplicates (e.g. Medium ?source=rss--- suffix)
+	if idx := strings.Index(trimmed, "?"); idx > 0 {
+		trimmed = trimmed[:idx]
+	}
+	return trimmed
 }
