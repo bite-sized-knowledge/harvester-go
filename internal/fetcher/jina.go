@@ -177,6 +177,7 @@ var excludePatterns = []string{
 	"/login", "/signup", "/register",
 	"/feed", "/rss", "/atom",
 	"/legal/", "/help/", "/accessibility", "/psettings/",
+	"/author/", "/authors/", "/team/", "/people/", "/contributor/", "/contributors/",
 }
 
 func IsArticleLink(link, pageURL string) bool {
