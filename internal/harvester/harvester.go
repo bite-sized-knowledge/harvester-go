@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 	"time"
 
@@ -187,12 +188,35 @@ func (r *Runner) fetchArticle(ctx context.Context, blog database.Blog, link stri
 	return fetcher.FetchByBlogID(ctx, r.client, blog.BlogID, link, item, blog.Title)
 }
 
+// trackingParams lists query parameters that identify the same article arriving
+// via different channels (Medium RSS suffix, UTM campaigns, ad clicks). Stripping
+// these prevents duplicate article_id hashes while preserving legitimate query
+// parameters like ?p=123 used by some CMSs as the article identifier.
+var trackingParams = map[string]bool{
+	"source":   true,
+	"ref":      true,
+	"fbclid":   true,
+	"gclid":    true,
+	"yclid":    true,
+	"msclkid":  true,
+	"_ga":      true,
+	"mc_cid":   true,
+	"mc_eid":   true,
+}
+
 func normalizeLink(value string) string {
 	trimmed := strings.TrimSpace(value)
-	trimmed = strings.TrimSuffix(trimmed, "/")
-	// Strip query parameters to prevent duplicates (e.g. Medium ?source=rss--- suffix)
-	if idx := strings.Index(trimmed, "?"); idx > 0 {
-		trimmed = trimmed[:idx]
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return strings.TrimSuffix(trimmed, "/")
 	}
-	return trimmed
+	q := parsed.Query()
+	for k := range q {
+		if trackingParams[k] || strings.HasPrefix(k, "utm_") {
+			q.Del(k)
+		}
+	}
+	parsed.RawQuery = q.Encode()
+	parsed.Fragment = ""
+	return strings.TrimSuffix(parsed.String(), "/")
 }
