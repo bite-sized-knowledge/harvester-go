@@ -123,12 +123,15 @@ func main() {
 			continue
 		}
 
-		if strings.TrimSpace(article.Title) == "" {
+		title := strings.TrimSpace(article.Title)
+		if title == "" || strings.EqualFold(title, strings.TrimSpace(blog.Title)) {
 			stillFailing++
-			logger.Info("still empty title",
+			logger.Info("still failing extraction",
 				"article_id", row.ArticleID,
 				"blog_id", row.BlogID,
 				"url", row.URL,
+				"title", article.Title,
+				"blog_title", blog.Title,
 				"content_length", article.ContentLength,
 			)
 			continue
