@@ -142,7 +142,7 @@ func (r *Runner) ProcessURL(ctx context.Context, blog database.Blog, rawURL stri
 	}
 
 	articleID := hasher.HashToSha1Base62(link)
-	exists, err := r.db.IsExistArticle(ctx, articleID)
+	exists, err := r.db.IsExistArticle(ctx, articleID, link)
 	if err != nil {
 		r.logger.Error("article existence check failed", "article_id", articleID, "url", link, "error", err)
 		return false, err
@@ -156,6 +156,16 @@ func (r *Runner) ProcessURL(ctx context.Context, blog database.Blog, rawURL stri
 	if err != nil {
 		r.logger.Error("article fetch failed", "blog_id", blog.BlogID, "blog_title", blog.Title, "url", link, "error", err)
 		return false, err
+	}
+
+	// Final guard against title-extraction failure: if every selector + Jina
+	// fallback returned nothing better than the blog name itself, the page
+	// content is broken (login wall / JS-only / WAF challenge). Do not insert
+	// — leaving it out of article_queue means we'll retry next harvest cycle.
+	if blog.Title != "" && strings.EqualFold(strings.TrimSpace(article.Title), strings.TrimSpace(blog.Title)) {
+		r.logger.Warn("article title equals blog title — extraction failed, skip",
+			"blog_id", blog.BlogID, "blog_title", blog.Title, "url", link)
+		return false, nil
 	}
 
 	if publishedAt.IsZero() {
