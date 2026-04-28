@@ -203,15 +203,15 @@ func (r *Runner) fetchArticle(ctx context.Context, blog database.Blog, link stri
 // these prevents duplicate article_id hashes while preserving legitimate query
 // parameters like ?p=123 used by some CMSs as the article identifier.
 var trackingParams = map[string]bool{
-	"source":   true,
-	"ref":      true,
-	"fbclid":   true,
-	"gclid":    true,
-	"yclid":    true,
-	"msclkid":  true,
-	"_ga":      true,
-	"mc_cid":   true,
-	"mc_eid":   true,
+	"source":  true,
+	"ref":     true,
+	"fbclid":  true,
+	"gclid":   true,
+	"yclid":   true,
+	"msclkid": true,
+	"_ga":     true,
+	"mc_cid":  true,
+	"mc_eid":  true,
 }
 
 func normalizeLink(value string) string {
