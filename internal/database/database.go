@@ -250,7 +250,8 @@ func nullIfZero(v int) any {
 }
 
 // IsExistArticle reports whether an article with this hashed ID OR the same
-// canonical URL already lives in `article` or `article_queue`.
+// canonical URL already lives in `article`, `article_queue`, or
+// `article_rejected`.
 //
 // The URL match is the recovery path: when the article_id (= hash of
 // normalized URL) has drifted because the normalize rules changed under us,
@@ -258,17 +259,31 @@ func nullIfZero(v int) any {
 // intact because some sites use ?ID=… as the article identifier
 // (e.g. devocean.sk.com/blog/techBoardDetail.do?ID=168109).
 //
+// article_rejected is included so that LLM-judged low_quality articles do
+// NOT get re-queued every RSS cycle once they've been removed from
+// article_queue. Without this clause, a single refetch_rejected --apply on
+// structural reject_reasons (or any other path that empties article_queue
+// while leaving rows in article_rejected) creates an infinite re-judge loop:
+// queue clears → next harvest cycle re-inserts the same URLs → harvest_post
+// rejects them → INSERT IGNORE silently no-ops on article_rejected → queue
+// clears again. Real incident: 2026-05-01 ~ 2026-05-04, 60+ hours of
+// silent data loss before detection.
+//
 // If trackingParams is extended in the future, run scripts/backfill_url_canonical.py
 // in harvest_post to re-normalize stored URLs so this exact match keeps working.
 func (d *DB) IsExistArticle(ctx context.Context, articleID, normalizedURL string) (bool, error) {
 	var exists bool
 	if err := d.pool.QueryRowContext(ctx, `
 		SELECT
-		  EXISTS(SELECT 1 FROM article       WHERE article_id = ? OR url = ?)
+		  EXISTS(SELECT 1 FROM article          WHERE article_id = ? OR url = ?)
 		  OR
-		  EXISTS(SELECT 1 FROM article_queue WHERE article_id = ? OR url = ?)
+		  EXISTS(SELECT 1 FROM article_queue    WHERE article_id = ? OR url = ?)
+		  OR
+		  EXISTS(SELECT 1 FROM article_rejected WHERE article_id = ? OR url = ?)
 		`,
-		articleID, normalizedURL, articleID, normalizedURL,
+		articleID, normalizedURL,
+		articleID, normalizedURL,
+		articleID, normalizedURL,
 	).Scan(&exists); err != nil {
 		return false, fmt.Errorf("query article existence: %w", err)
 	}
